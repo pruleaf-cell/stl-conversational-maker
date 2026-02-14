@@ -1,0 +1,6 @@
+{
+  "name": "PLA Standard",
+  "layer_height_mm": 0.2,
+  "nozzle_mm": 0.4,
+  "notes": "Placeholder process profile. Replace with exported Bambu Studio preset JSON."
+}

@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: stl-maker-api
+    runtime: docker
+    dockerfilePath: ./infra/docker/api.Dockerfile
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PUBLIC_BASE_URL
+        value: https://stl-maker-api.onrender.com
+      - key: RETENTION_HOURS
+        value: "24"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: stl-maker-redis
+          property: connectionString
+
+  - type: worker
+    name: stl-maker-slicer-worker
+    runtime: docker
+    dockerfilePath: ./infra/docker/worker.Dockerfile
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: RETENTION_HOURS
+        value: "24"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: stl-maker-redis
+          property: connectionString
+
+  - type: keyvalue
+    name: stl-maker-redis
+    plan: starter

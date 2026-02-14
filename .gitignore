@@ -19,6 +19,7 @@ venv/
 tmp/
 artifacts/
 logs/
+*.tsbuildinfo
 *.stl
 *.3mf
 

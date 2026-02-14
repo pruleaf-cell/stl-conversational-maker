@@ -118,6 +118,23 @@ Replace these with JSON presets exported from Bambu Studio before production sli
 - API + worker: Render (see `infra/render.yaml`)
 - CI: `.github/workflows/ci.yml`
 
+### Production secret bootstrap
+
+Set these values in your shell:
+
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
+- `RENDER_DEPLOY_HOOK_API`
+- `RENDER_DEPLOY_HOOK_WORKER`
+
+Then run:
+
+```bash
+./infra/scripts/set_github_secrets.sh
+./infra/scripts/trigger_deploy.sh
+```
+
 ## Notes on current fallback behaviour
 
 If `bambu-studio` is unavailable, jobs still complete with:

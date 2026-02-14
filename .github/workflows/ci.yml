@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   python-api:
@@ -42,33 +43,48 @@ jobs:
         run: docker build -f infra/docker/worker.Dockerfile .
 
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: ${{ github.ref == 'refs/heads/main' }}
     needs: [python-api, node-web-contracts, worker-image-smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Trigger Render API deploy
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_API != '' }}
-        run: curl -sS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_API }}"
+        run: |
+          if [ -n "${RENDER_DEPLOY_HOOK_API}" ]; then
+            curl -sS -X POST "${RENDER_DEPLOY_HOOK_API}"
+          else
+            echo "Skipping Render API deploy: RENDER_DEPLOY_HOOK_API is not set."
+          fi
+        env:
+          RENDER_DEPLOY_HOOK_API: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
 
       - name: Trigger Render worker deploy
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER != '' }}
-        run: curl -sS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}"
+        run: |
+          if [ -n "${RENDER_DEPLOY_HOOK_WORKER}" ]; then
+            curl -sS -X POST "${RENDER_DEPLOY_HOOK_WORKER}"
+          else
+            echo "Skipping Render worker deploy: RENDER_DEPLOY_HOOK_WORKER is not set."
+          fi
+        env:
+          RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
 
       - uses: actions/setup-node@v4
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
         with:
           node-version: "20"
 
       - name: Deploy web to Vercel
-        if: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
         run: |
-          npm install --global vercel@latest
-          cd apps/web
-          vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-          vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          if [ -n "${VERCEL_TOKEN}" ] && [ -n "${VERCEL_ORG_ID}" ] && [ -n "${VERCEL_PROJECT_ID}" ]; then
+            npm install --global vercel@latest
+            cd apps/web
+            vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
+            vercel build --prod --token="${VERCEL_TOKEN}"
+            vercel deploy --prebuilt --prod --token="${VERCEL_TOKEN}"
+          else
+            echo "Skipping Vercel deploy: VERCEL_TOKEN, VERCEL_ORG_ID, and/or VERCEL_PROJECT_ID not set."
+          fi
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

@@ -34,3 +34,4 @@ services:
   - type: keyvalue
     name: stl-maker-redis
     plan: starter
+    ipAllowList: []

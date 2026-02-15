@@ -114,19 +114,17 @@ Replace these with JSON presets exported from Bambu Studio before production sli
 
 ## Deployment
 
-- Frontend: Vercel
+- Frontend: GitHub Pages (via `.github/workflows/ci.yml`)
 - API + worker: Render (see `infra/render.yaml`)
 - CI: `.github/workflows/ci.yml`
 
-### Production secret bootstrap
+### Production bootstrap
 
 Set these values in your shell:
 
-- `VERCEL_TOKEN`
-- `VERCEL_ORG_ID`
-- `VERCEL_PROJECT_ID`
 - `RENDER_DEPLOY_HOOK_API`
 - `RENDER_DEPLOY_HOOK_WORKER`
+- `NEXT_PUBLIC_API_BASE_URL` (example: `https://stl-maker-api.onrender.com/api/v1`)
 
 Then run:
 
@@ -134,6 +132,8 @@ Then run:
 ./infra/scripts/set_github_secrets.sh
 ./infra/scripts/trigger_deploy.sh
 ```
+
+Set GitHub Pages source to **GitHub Actions** in repository settings before running the deploy workflow.
 
 ## Notes on current fallback behaviour
 

@@ -4,11 +4,9 @@ set -euo pipefail
 REPO="${REPO:-pruleaf-cell/stl-conversational-maker}"
 
 required=(
-  VERCEL_TOKEN
-  VERCEL_ORG_ID
-  VERCEL_PROJECT_ID
   RENDER_DEPLOY_HOOK_API
   RENDER_DEPLOY_HOOK_WORKER
+  NEXT_PUBLIC_API_BASE_URL
 )
 
 for key in "${required[@]}"; do
@@ -18,9 +16,13 @@ for key in "${required[@]}"; do
   fi
 done
 
-for key in "${required[@]}"; do
-  printf '%s' "${!key}" | gh secret set "$key" -R "$REPO"
-  echo "Set $key"
-done
+printf '%s' "${RENDER_DEPLOY_HOOK_API}" | gh secret set "RENDER_DEPLOY_HOOK_API" -R "$REPO"
+echo "Set RENDER_DEPLOY_HOOK_API"
 
-echo "All deployment secrets configured for $REPO"
+printf '%s' "${RENDER_DEPLOY_HOOK_WORKER}" | gh secret set "RENDER_DEPLOY_HOOK_WORKER" -R "$REPO"
+echo "Set RENDER_DEPLOY_HOOK_WORKER"
+
+gh variable set NEXT_PUBLIC_API_BASE_URL -R "$REPO" --body "${NEXT_PUBLIC_API_BASE_URL}"
+echo "Set NEXT_PUBLIC_API_BASE_URL variable"
+
+echo "Deployment secrets/variables configured for $REPO"

@@ -21,6 +21,7 @@ class Settings:
     default_merge_model: str
     redis_url: str
     use_external_worker: bool
+    cors_allow_origins: list[str]
     max_dimensions_mm: float
     max_feature_count: int
     rate_limit_per_minute: int
@@ -31,6 +32,15 @@ def get_settings() -> Settings:
     root = Path(__file__).resolve().parents[3]
     artifacts_dir = Path(os.getenv("ARTIFACTS_DIR", root / "artifacts"))
     profile_dir = Path(os.getenv("BAMBU_PROFILE_DIR", root / "infra" / "bambu-profiles"))
+
+    cors_allow_origins = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ALLOW_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if origin.strip()
+    ]
 
     return Settings(
         app_name="STL Conversational Maker API",
@@ -46,6 +56,7 @@ def get_settings() -> Settings:
         default_merge_model=os.getenv("OPENAI_MERGE_MODEL", "gpt-5"),
         redis_url=os.getenv("REDIS_URL", ""),
         use_external_worker=os.getenv("USE_EXTERNAL_WORKER", "false").lower() == "true",
+        cors_allow_origins=cors_allow_origins,
         max_dimensions_mm=float(os.getenv("MAX_DIMENSIONS_MM", "120")),
         max_feature_count=int(os.getenv("MAX_FEATURE_COUNT", "200")),
         rate_limit_per_minute=int(os.getenv("RATE_LIMIT_PER_MINUTE", "30")),

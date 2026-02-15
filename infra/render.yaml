@@ -10,6 +10,8 @@ services:
         value: https://stl-maker-api.onrender.com
       - key: RETENTION_HOURS
         value: "24"
+      - key: CORS_ALLOW_ORIGINS
+        value: https://pruleaf-cell.github.io,http://localhost:3000,http://127.0.0.1:3000
       - key: REDIS_URL
         fromService:
           type: keyvalue

@@ -93,3 +93,15 @@ def test_build_creates_artifacts_urls() -> None:
     assert status_payload["status"] == "completed"
     assert status_payload["stlUrl"]
     assert status_payload["reportUrl"]
+
+
+def test_cors_preflight_for_localhost() -> None:
+    response = client.options(
+        "/api/v1/sessions",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"

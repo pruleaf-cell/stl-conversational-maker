@@ -1,42 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
-  BuildResult,
   ClarificationQuestion,
-  PrinterProfile,
-  SessionState
+  GenerateResponse,
+  InterpretResponse,
+  ModelSpec,
+  PrinterProfile
 } from "@stl-maker/contracts";
-import {
-  createBuild,
-  createSession,
-  getArtifacts,
-  getBuild,
-  patchSpec,
-  submitAnswers,
-  type BuildStatusResponse
-} from "../lib/api";
+import { STAGE_LABELS } from "@stl-maker/contracts";
+import { generate, interpret } from "../lib/api";
 import { locale } from "../lib/locales/en-GB";
 
 type Step = "create" | "questions" | "refine" | "build" | "results";
 
 const PRINTER_OPTIONS: PrinterProfile[] = ["A1_PLA_0.4", "P1_PLA_0.4", "X1_PLA_0.4"];
-
-function deriveStep(session: SessionState): Step {
-  if (session.status === "questions_ready") {
-    return "questions";
-  }
-  if (session.status === "ready_to_build") {
-    return "refine";
-  }
-  if (session.status === "building") {
-    return "build";
-  }
-  if (session.status === "completed") {
-    return "results";
-  }
-  return "create";
-}
 
 function normaliseAnswer(question: ClarificationQuestion, value: string): number | string {
   if (question.inputType === "number") {
@@ -46,143 +24,216 @@ function normaliseAnswer(question: ClarificationQuestion, value: string): number
   return value;
 }
 
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+  const decoded = atob(value);
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index);
+  }
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function withDraftSpec(
+  interpreted: InterpretResponse,
+  dimensionDraft: Record<string, number>,
+  printerProfile: PrinterProfile
+): ModelSpec {
+  return {
+    ...interpreted.modelSpec,
+    printerProfile,
+    dimensionsMm: {
+      ...interpreted.modelSpec.dimensionsMm,
+      ...dimensionDraft
+    }
+  };
+}
+
 export default function HomePage() {
   const [step, setStep] = useState<Step>("create");
-  const [prompt, setPrompt] = useState(
-    "I want a 2mm deep earring, in the shape of a heart."
-  );
-  const [session, setSession] = useState<SessionState | null>(null);
+  const [prompt, setPrompt] = useState("I want a 2mm deep earring, in the shape of a heart.");
+  const [interpreted, setInterpreted] = useState<InterpretResponse | null>(null);
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
+  const [resolvedAnswers, setResolvedAnswers] = useState<Record<string, string | number>>({});
   const [dimensionDraft, setDimensionDraft] = useState<Record<string, number>>({});
   const [printerProfile, setPrinterProfile] = useState<PrinterProfile>("A1_PLA_0.4");
-  const [build, setBuild] = useState<BuildStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [generated, setGenerated] = useState<GenerateResponse | null>(null);
+  const [stlUrl, setStlUrl] = useState<string | null>(null);
+  const [guideUrl, setGuideUrl] = useState<string | null>(null);
+  const [progressIndex, setProgressIndex] = useState(0);
+  const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const progressTimerRef = useRef<number | null>(null);
+
   const dimensions = useMemo(
-    () => session?.modelSpec?.dimensionsMm ?? {},
-    [session?.modelSpec?.dimensionsMm]
+    () => interpreted?.modelSpec?.dimensionsMm ?? {},
+    [interpreted?.modelSpec?.dimensionsMm]
   );
 
   useEffect(() => {
-    if (!session?.modelSpec?.dimensionsMm) {
+    if (!interpreted) {
       return;
     }
-    setDimensionDraft(session.modelSpec.dimensionsMm);
-  }, [session?.modelSpec?.dimensionsMm]);
+
+    setDimensionDraft(interpreted.modelSpec.dimensionsMm);
+    setPrinterProfile(interpreted.modelSpec.printerProfile);
+  }, [interpreted]);
 
   useEffect(() => {
-    if (!build || !["queued", "running"].includes(build.status)) {
-      return;
-    }
-
-    const interval = setInterval(async () => {
-      try {
-        const updated = await getBuild(build.jobId);
-        setBuild(updated);
-        if (updated.status === "completed") {
-          const artefacts = await getArtifacts(build.jobId);
-          setBuild(artefacts);
-          setStep("results");
-          clearInterval(interval);
-        }
-        if (updated.status === "failed") {
-          setError(updated.error ?? locale.statusFailed);
-          clearInterval(interval);
-        }
-      } catch (pollError) {
-        setError((pollError as Error).message);
-        clearInterval(interval);
+    return () => {
+      if (progressTimerRef.current !== null) {
+        window.clearInterval(progressTimerRef.current);
       }
-    }, 2500);
-
-    return () => clearInterval(interval);
-  }, [build]);
+      if (stlUrl) {
+        URL.revokeObjectURL(stlUrl);
+      }
+      if (guideUrl) {
+        URL.revokeObjectURL(guideUrl);
+      }
+    };
+  }, [guideUrl, stlUrl]);
 
   const handleCreate = async () => {
     setError(null);
-    setLoading(true);
+    setIsWorking(true);
+    setGenerated(null);
     try {
-      const created = await createSession({ prompt });
-      setSession(created);
-      setStep(deriveStep(created));
-      if (created.modelSpec) {
-        setPrinterProfile(created.modelSpec.printerProfile);
-      }
+      const response = await interpret({ prompt });
+      setInterpreted(response);
+      setQuestionAnswers({});
+      setResolvedAnswers({});
+      setStep(response.questions.length > 0 ? "questions" : "refine");
     } catch (createError) {
       setError((createError as Error).message);
     } finally {
-      setLoading(false);
+      setIsWorking(false);
     }
   };
 
   const handleSubmitQuestions = async () => {
-    if (!session) {
+    if (!interpreted) {
       return;
     }
+
     setError(null);
-    setLoading(true);
+    setIsWorking(true);
+
     try {
       const answers: Record<string, string | number> = {};
-      session.questions.forEach((question) => {
+      interpreted.questions.forEach((question) => {
         const raw = questionAnswers[question.id] ?? "";
         answers[question.id] = normaliseAnswer(question, raw);
       });
 
-      const updated = await submitAnswers(session.sessionId, answers);
-      setSession(updated);
-      setStep(deriveStep(updated));
-    } catch (answerError) {
-      setError((answerError as Error).message);
+      const mergedAnswers = {
+        ...resolvedAnswers,
+        ...answers
+      };
+
+      const response = await interpret({
+        prompt,
+        answers: mergedAnswers,
+        draftSpec: withDraftSpec(interpreted, dimensionDraft, printerProfile)
+      });
+
+      setResolvedAnswers(mergedAnswers);
+      setQuestionAnswers({});
+      setInterpreted(response);
+      setStep(response.questions.length > 0 ? "questions" : "refine");
+    } catch (questionError) {
+      setError((questionError as Error).message);
     } finally {
-      setLoading(false);
+      setIsWorking(false);
     }
   };
 
-  const handleApplyRefinement = async () => {
-    if (!session) {
+  const handleRefineContinue = () => {
+    if (!interpreted) {
       return;
     }
-    setError(null);
-    setLoading(true);
-    try {
-      const updated = await patchSpec(session.sessionId, dimensionDraft);
-      setSession(updated);
-      setStep("build");
-    } catch (patchError) {
-      setError((patchError as Error).message);
-    } finally {
-      setLoading(false);
-    }
+
+    setInterpreted({
+      ...interpreted,
+      modelSpec: withDraftSpec(interpreted, dimensionDraft, printerProfile)
+    });
+    setStep("build");
   };
 
-  const handleBuild = async () => {
-    if (!session) {
+  const handleGenerate = async () => {
+    if (!interpreted) {
       return;
     }
+
     setError(null);
-    setLoading(true);
+    setIsWorking(true);
+    setProgressIndex(0);
+
+    if (progressTimerRef.current !== null) {
+      window.clearInterval(progressTimerRef.current);
+    }
+
+    progressTimerRef.current = window.setInterval(() => {
+      setProgressIndex((prev) => Math.min(prev + 1, STAGE_LABELS.length - 1));
+    }, 850);
+
     try {
-      const created = await createBuild({
-        sessionId: session.sessionId,
+      const finalSpec = withDraftSpec(interpreted, dimensionDraft, printerProfile);
+      const response = await generate({
+        modelSpec: finalSpec,
         printerProfile
       });
-      setBuild(created);
-      setStep("build");
-    } catch (buildError) {
-      setError((buildError as Error).message);
+
+      if (stlUrl) {
+        URL.revokeObjectURL(stlUrl);
+      }
+      if (guideUrl) {
+        URL.revokeObjectURL(guideUrl);
+      }
+
+      const stlBlob = new Blob([base64ToArrayBuffer(response.stlBase64)], {
+        type: "model/stl"
+      });
+
+      const guideBlob = new Blob([JSON.stringify(response.slicingGuide, null, 2)], {
+        type: "application/json"
+      });
+
+      setStlUrl(URL.createObjectURL(stlBlob));
+      setGuideUrl(URL.createObjectURL(guideBlob));
+      setGenerated(response);
+      setStep("results");
+    } catch (generateError) {
+      setError((generateError as Error).message);
     } finally {
-      setLoading(false);
+      if (progressTimerRef.current !== null) {
+        window.clearInterval(progressTimerRef.current);
+      }
+      setIsWorking(false);
     }
   };
 
   const resetAll = () => {
+    if (progressTimerRef.current !== null) {
+      window.clearInterval(progressTimerRef.current);
+    }
+    if (stlUrl) {
+      URL.revokeObjectURL(stlUrl);
+    }
+    if (guideUrl) {
+      URL.revokeObjectURL(guideUrl);
+    }
+
     setStep("create");
-    setSession(null);
+    setInterpreted(null);
     setQuestionAnswers({});
+    setResolvedAnswers({});
     setDimensionDraft({});
-    setBuild(null);
+    setPrinterProfile("A1_PLA_0.4");
+    setGenerated(null);
+    setStlUrl(null);
+    setGuideUrl(null);
     setError(null);
+    setProgressIndex(0);
   };
 
   return (
@@ -206,17 +257,17 @@ export default function HomePage() {
             placeholder={locale.createPromptPlaceholder}
             rows={5}
           />
-          <button onClick={handleCreate} disabled={loading || !prompt.trim()}>
-            {loading ? "Preparing…" : locale.submitPrompt}
+          <button onClick={handleCreate} disabled={isWorking || !prompt.trim()}>
+            {isWorking ? "Preparing…" : locale.submitPrompt}
           </button>
         </section>
       ) : null}
 
-      {step === "questions" && session ? (
+      {step === "questions" && interpreted ? (
         <section className="panel">
           <h2>{locale.questionsHeading}</h2>
-          <p>{session.summary}</p>
-          {session.questions.map((question) => (
+          <p>{interpreted.summary}</p>
+          {interpreted.questions.map((question) => (
             <div className="question-row" key={question.id}>
               <label htmlFor={question.id}>{question.label}</label>
               {question.inputType === "select" ? (
@@ -224,8 +275,8 @@ export default function HomePage() {
                   id={question.id}
                   value={questionAnswers[question.id] ?? ""}
                   onChange={(event) =>
-                    setQuestionAnswers((prev) => ({
-                      ...prev,
+                    setQuestionAnswers((previous) => ({
+                      ...previous,
                       [question.id]: event.target.value
                     }))
                   }
@@ -243,8 +294,8 @@ export default function HomePage() {
                   type={question.inputType === "number" ? "number" : "text"}
                   value={questionAnswers[question.id] ?? ""}
                   onChange={(event) =>
-                    setQuestionAnswers((prev) => ({
-                      ...prev,
+                    setQuestionAnswers((previous) => ({
+                      ...previous,
                       [question.id]: event.target.value
                     }))
                   }
@@ -253,16 +304,16 @@ export default function HomePage() {
               )}
             </div>
           ))}
-          <button onClick={handleSubmitQuestions} disabled={loading}>
-            {loading ? "Analysing…" : locale.submitQuestions}
+          <button onClick={handleSubmitQuestions} disabled={isWorking}>
+            {isWorking ? "Analysing…" : locale.submitQuestions}
           </button>
         </section>
       ) : null}
 
-      {step === "refine" && session ? (
+      {step === "refine" && interpreted ? (
         <section className="panel">
           <h2>{locale.refineHeading}</h2>
-          <p>{session.summary}</p>
+          <p>{interpreted.summary}</p>
 
           {Object.entries(dimensions).map(([key, value]) => (
             <div className="question-row" key={key}>
@@ -271,12 +322,12 @@ export default function HomePage() {
                 id={key}
                 type="range"
                 min={0.6}
-                max={80}
+                max={120}
                 step={0.1}
                 value={dimensionDraft[key] ?? value}
                 onChange={(event) =>
-                  setDimensionDraft((prev) => ({
-                    ...prev,
+                  setDimensionDraft((previous) => ({
+                    ...previous,
                     [key]: Number(event.target.value)
                   }))
                 }
@@ -284,12 +335,12 @@ export default function HomePage() {
               <input
                 type="number"
                 min={0.6}
-                max={80}
+                max={120}
                 step={0.1}
                 value={dimensionDraft[key] ?? value}
                 onChange={(event) =>
-                  setDimensionDraft((prev) => ({
-                    ...prev,
+                  setDimensionDraft((previous) => ({
+                    ...previous,
                     [key]: Number(event.target.value)
                   }))
                 }
@@ -312,45 +363,38 @@ export default function HomePage() {
             </select>
           </div>
 
-          <button onClick={handleApplyRefinement} disabled={loading}>
-            {loading ? "Applying…" : locale.applyRefinement}
+          <button onClick={handleRefineContinue} disabled={isWorking}>
+            {locale.applyRefinement}
           </button>
         </section>
       ) : null}
 
-      {step === "build" ? (
+      {step === "build" && interpreted ? (
         <section className="panel">
           <h2>{locale.buildHeading}</h2>
-          {!build ? <p>{locale.statusReady}</p> : null}
-          {!build ? (
-            <button onClick={handleBuild} disabled={loading}>
-              {loading ? "Starting…" : locale.startBuild}
-            </button>
-          ) : null}
-
-          {build ? (
-            <div className="progress-stack">
-              <p>
-                {locale.progress}: <strong>{build.stage ?? "Understanding request"}</strong>
-              </p>
-              <p>
-                Status: <strong>{build.status}</strong>
-              </p>
-            </div>
-          ) : null}
+          <p>{interpreted.summary}</p>
+          <p>
+            {locale.progress}: <strong>{STAGE_LABELS[progressIndex]}</strong>
+          </p>
+          <p>
+            Profile: <strong>{printerProfile}</strong>
+          </p>
+          <button onClick={handleGenerate} disabled={isWorking}>
+            {isWorking ? "Generating…" : locale.startBuild}
+          </button>
         </section>
       ) : null}
 
-      {step === "results" && session && build ? (
+      {step === "results" && interpreted && generated ? (
         <section className="panel">
           <h2>{locale.resultsHeading}</h2>
-          <p>{session.summary}</p>
+          <p>{interpreted.summary}</p>
 
-          {session.adjustments.length > 0 ? (
+          {interpreted.adjustments.length > 0 ? (
             <div>
               <h3>{locale.autoAdjustments}</h3>
               <ul>
-                {session.adjustments.map((adjustment, index) => (
+                {interpreted.adjustments.map((adjustment, index) => (
                   <li key={`${adjustment.field}-${index}`}>
                     {adjustment.field}: {String(adjustment.from)} {"->"} {String(adjustment.to)} ({adjustment.reason})
                   </li>
@@ -360,19 +404,17 @@ export default function HomePage() {
           ) : null}
 
           <div className="result-links">
-            {build.stlUrl ? (
-              <a href={build.stlUrl} target="_blank" rel="noreferrer">
+            {stlUrl ? (
+              <a href={stlUrl} download={generated.stlFileName}>
                 Download STL
               </a>
             ) : null}
-            {build.project3mfUrl ? (
-              <a href={build.project3mfUrl} target="_blank" rel="noreferrer">
-                Download 3MF
-              </a>
-            ) : null}
-            {build.reportUrl ? (
-              <a href={build.reportUrl} target="_blank" rel="noreferrer">
-                View slicing summary
+            {guideUrl ? (
+              <a
+                href={guideUrl}
+                download={generated.stlFileName.replace(/\.stl$/i, "") + "-slicing-guide.json"}
+              >
+                Download slicing guide JSON
               </a>
             ) : null}
           </div>

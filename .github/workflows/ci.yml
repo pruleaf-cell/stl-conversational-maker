@@ -10,23 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  python-api:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r apps/api/requirements.txt
-      - name: Run API tests
-        run: |
-          cd apps/api
-          pytest -q
-
-  node-web-contracts:
+  node-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,73 +19,9 @@ jobs:
           node-version: "20"
       - name: Install workspace dependencies
         run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Typecheck
         run: npm run typecheck
-
-  worker-image-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build worker image
-        run: docker build -f infra/docker/worker.Dockerfile .
-
-  deploy:
-    if: ${{ github.ref == 'refs/heads/main' }}
-    needs: [python-api, node-web-contracts, worker-image-smoke]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Trigger Render API deploy
-        run: |
-          if [ -z "${RENDER_DEPLOY_HOOK_API}" ]; then
-            echo "::error::Missing RENDER_DEPLOY_HOOK_API secret"
-            exit 1
-          fi
-          curl --fail-with-body -sS -X POST "${RENDER_DEPLOY_HOOK_API}" > /dev/null
-        env:
-          RENDER_DEPLOY_HOOK_API: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
-
-      - name: Trigger Render worker deploy
-        run: |
-          if [ -z "${RENDER_DEPLOY_HOOK_WORKER}" ]; then
-            echo "::error::Missing RENDER_DEPLOY_HOOK_WORKER secret"
-            exit 1
-          fi
-          curl --fail-with-body -sS -X POST "${RENDER_DEPLOY_HOOK_WORKER}" > /dev/null
-        env:
-          RENDER_DEPLOY_HOOK_WORKER: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Build web for GitHub Pages
-        run: |
-          if [ -z "${NEXT_PUBLIC_API_BASE_URL}" ]; then
-            echo "::error::Missing repository variable NEXT_PUBLIC_API_BASE_URL"
-            exit 1
-          fi
-          npm ci
-          npm run build --workspace @stl-maker/web
-        env:
-          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./apps/web/out
-
-      - name: Deploy GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Tests
+        run: npm run test

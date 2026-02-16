@@ -1,16 +1,4 @@
-export type SessionStatus =
-  | "collecting"
-  | "questions_ready"
-  | "ready_to_build"
-  | "building"
-  | "completed"
-  | "failed";
-
 export type InputType = "select" | "number" | "text";
-
-export interface CreateSessionRequest {
-  prompt: string;
-}
 
 export interface ClarificationQuestion {
   id: string;
@@ -28,12 +16,7 @@ export type ObjectClass =
   | "fidget_token"
   | "fidget_spinner";
 
-export type Shape =
-  | "heart"
-  | "circle"
-  | "star"
-  | "rounded_square"
-  | "custom_outline";
+export type Shape = "heart" | "circle" | "star" | "rounded_square" | "custom_outline";
 
 export type PrinterProfile = "A1_PLA_0.4" | "P1_PLA_0.4" | "X1_PLA_0.4";
 
@@ -52,34 +35,38 @@ export interface AutoAdjustment {
   reason: string;
 }
 
-export interface SessionState {
-  sessionId: string;
-  status: SessionStatus;
+export interface InterpretRequest {
+  prompt: string;
+  answers?: Record<string, string | number>;
+  draftSpec?: ModelSpec;
+}
+
+export interface InterpretResponse {
   summary: string;
   questions: ClarificationQuestion[];
-  modelSpec: ModelSpec | null;
+  modelSpec: ModelSpec;
   adjustments: AutoAdjustment[];
 }
 
-export interface BuildRequest {
-  sessionId: string;
+export interface GenerateRequest {
+  modelSpec: ModelSpec;
   printerProfile: PrinterProfile;
 }
 
-export type BuildStatus = "queued" | "running" | "completed" | "failed";
-
-export interface BuildResult {
-  jobId: string;
-  status: BuildStatus;
-  stlUrl?: string;
-  project3mfUrl?: string;
-  reportUrl?: string;
+export interface GenerateResponse {
+  stlFileName: string;
+  stlBase64: string;
+  slicingGuide: {
+    profile: string;
+    notes: string[];
+    recommendedSteps: string[];
+  };
 }
 
 export const STAGE_LABELS = [
   "Understanding request",
   "Preparing geometry",
   "Validating printability",
-  "Slicing for printer profile",
-  "Packaging files"
+  "Generating STL",
+  "Preparing slicing guide"
 ] as const;

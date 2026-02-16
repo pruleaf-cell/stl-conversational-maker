@@ -1,6 +1,7 @@
 export const locale = {
   appTitle: "STL Conversational Maker",
-  strapline: "Describe what you want to print. We handle geometry, safety checks, and slicing.",
+  strapline:
+    "Describe what you want to print. We handle interpretation, printability checks, and STL generation.",
   createHeading: "Create",
   createPromptLabel: "What would you like to make?",
   createPromptPlaceholder:
@@ -9,15 +10,15 @@ export const locale = {
   questionsHeading: "Questions",
   submitQuestions: "Continue to refine",
   refineHeading: "Refine",
-  applyRefinement: "Apply refinements",
+  applyRefinement: "Continue to build",
   buildHeading: "Build",
-  startBuild: "Create STL and 3MF",
+  startBuild: "Generate STL",
   resultsHeading: "Results",
   backToStart: "Start a new model",
-  retentionNotice: "Files are retained for 24 hours.",
+  retentionNotice: "Generated files remain available in this browser tab until you refresh.",
   autoAdjustments: "Automatic adjustments",
+  slicingGuide: "Slicing guide",
   progress: "Build progress",
-  statusReady: "Ready to build",
-  statusCollecting: "Collecting details",
+  statusReady: "Ready to generate",
   statusFailed: "Build failed"
 };
